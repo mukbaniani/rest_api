@@ -7,19 +7,26 @@ from rest_framework.views import APIView
 from django.db.models import Count
 from rest_framework import generics, mixins, status
 from rest_framework.authtoken.models import Token
-from rest_framework.permissions import IsAdminUser
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 
 
-class CommentGetPostRequest(generics.ListAPIView, mixins.ListModelMixin, mixins.CreateModelMixin):
+class CommentMain(generics.ListAPIView):
     serializer_class = CommentSerializer
-    
+
     def get_queryset(self):
         post_id = self.kwargs['pk']
         comments = Comment.objects.filter(post_id=post_id)
         return comments
 
+
+class CommentListView(CommentMain, mixins.ListModelMixin):
+
     def get(self, request, pk):
         return self.list(request, pk)
+
+
+class CommentSave(CommentMain, mixins.CreateModelMixin):
+    permission_classes = [IsAuthenticated]
 
     def post(self, request, pk=None):
         return self.create(request)
@@ -28,39 +35,55 @@ class CommentGetPostRequest(generics.ListAPIView, mixins.ListModelMixin, mixins.
 class CommentPutAndDeleteReqeust(generics.GenericAPIView, mixins.UpdateModelMixin, mixins.DestroyModelMixin):
     serializer_class = CommentSerializer
     queryset = Comment.objects.all()
+    permission_classes = [IsAuthenticated]
 
     def put(self, request, pk):
+        comment = get_object_or_404(Comment, pk=pk)
+        if comment.user != self.request.user:
+            return Response(status=status.HTTP_403_FORBIDDEN)
         return self.update(request, pk)
 
     def delete(self, request, pk):
+        comment = get_object_or_404(Comment, pk=pk)
+        if comment.user != self.request.user:
+            return Response(status=status.HTTP_403_FORBIDDEN)
         return self.destroy(request, pk)
 
 
-class PostShowSaveView(APIView):
+class PostListView(APIView):
     
     def get(self, request):
         posts = Post.objects.all()
         serializer = PostSerializers(posts, many=True)
         return Response(serializer.data)
 
+
+class PostSave(APIView):
+    permission_classes = [IsAuthenticated]
+
     def post(self, request):
         serializer = PostSerializers(data=request.data)
         if serializer.is_valid():
-            serializer.save()
+            serializer.save(user=request.user)
         return Response(serializer.data)
 
 
 class PostPutAndDeleteRequest(APIView):
+    permission_classes = [IsAuthenticated]
 
     def put(self, request, pk):
         post = get_object_or_404(Post, pk=pk)
         serializer = PostSerializers(instance=post, data=request.data)
+        if post.user != request.user:
+            return Response(status=status.HTTP_403_FORBIDDEN)
         if serializer.is_valid():
             serializer.save()
         return Response(serializer.data)
 
     def delete(self, request, pk):
         post = get_object_or_404(Post, pk=pk)
+        if post.user != request.user:
+            return Response(status=status.HTTP_403_FORBIDDEN)
         post.delete()
         return Response('post deleted')
 
@@ -73,7 +96,7 @@ def home(request):
 
 
 @api_view(['POST'])
-@permission_classes(IsAdminUser,)
+@permission_classes([IsAdminUser])
 def create_category(request):
     serializer = CategorySerializer(data=request.data)
     if serializer.is_valid():
@@ -82,7 +105,7 @@ def create_category(request):
 
 
 @api_view(['PUT'])
-@permission_classes(IsAdminUser)
+@permission_classes([IsAdminUser])
 def update_category(request, pk):
     category = get_object_or_404(Category, pk=pk)
     serializer = CategorySerializer(instance=category, data=request.data)
@@ -92,7 +115,7 @@ def update_category(request, pk):
 
 
 @api_view(['DELETE'])
-@permission_classes(IsAdminUser,)
+@permission_classes([IsAdminUser])
 def delete_category(request, pk):
     category = get_object_or_404(Category, pk=pk)
     category.delete()
